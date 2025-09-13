@@ -1,0 +1,540 @@
+<html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>リアルタイム日程調整アプリ</title>
+    <!-- Tailwind CSSの読み込み -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Font Awesome (アイコン用) -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', 'Noto Sans JP', sans-serif;
+        }
+        /* ちょっとしたアニメーション */
+        .fade-in {
+            animation: fadeIn 0.5s ease-in-out;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(-10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .status-btn {
+            transition: all 0.2s ease-in-out;
+        }
+        .status-btn:hover {
+            transform: scale(1.1);
+        }
+        .status-o { background-color: #dcfce7; color: #166534; }
+        .status-s { background-color: #fef9c3; color: #854d0e; }
+        .status-x { background-color: #fee2e2; color: #991b1b; }
+    </style>
+</head>
+<body class="bg-gray-50 text-gray-800">
+
+    <div id="app" class="container mx-auto p-4 md:p-8 max-w-4xl">
+        <!-- ローディングスピナー -->
+        <div id="loader" class="fixed inset-0 bg-white bg-opacity-75 flex items-center justify-center z-50 hidden">
+            <i class="fas fa-spinner fa-spin text-4xl text-blue-500"></i>
+        </div>
+
+        <!-- イベント作成ビュー -->
+        <div id="create-view" class="fade-in">
+            <div class="bg-white p-8 rounded-2xl shadow-lg">
+                <h1 class="text-3xl font-bold text-gray-900 mb-2">新しい日程調整を作成</h1>
+                <p class="text-gray-600 mb-6">イベント名と候補日を入力してください。</p>
+
+                <div class="space-y-6">
+                    <div>
+                        <label for="event-name" class="block text-sm font-medium text-gray-700 mb-1">イベント名</label>
+                        <input type="text" id="event-name" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500" placeholder="例: プロジェクトキックオフ会議">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">候補日時</label>
+                        <p class="text-xs text-gray-500 mb-2">「追加」ボタンを押して、複数の候補日時を登録できます。</p>
+                        <div id="candidate-dates-container" class="space-y-2 mb-2">
+                            <!-- 候補日がここに追加される -->
+                        </div>
+                        <button id="add-date-btn" class="w-full bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold py-2 px-4 rounded-lg flex items-center justify-center">
+                            <i class="fas fa-plus mr-2"></i>候補日時を追加
+                        </button>
+                    </div>
+                </div>
+
+                <div class="mt-8">
+                    <button id="create-event-btn" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded-lg text-lg transition-colors">
+                        <i class="fas fa-magic-wand-sparkles mr-2"></i>作成して共有URLを取得
+                    </button>
+                </div>
+            </div>
+             <p class="text-center text-gray-500 text-sm mt-4">
+                ※Googleカレンダーとの自動同期機能はありません。ご自身のカレンダーをご確認ください。
+            </p>
+        </div>
+
+        <!-- 日程調整ビュー -->
+        <div id="schedule-view" class="hidden fade-in">
+             <div class="bg-white p-6 md:p-8 rounded-2xl shadow-lg">
+                <h1 id="display-event-name" class="text-3xl font-bold text-gray-900 mb-2 break-words"></h1>
+                <p class="text-gray-600 mb-6">あなたの名前を入力し、各日時の出欠を選択してください。</p>
+
+                <div class="mb-6">
+                     <label for="participant-name" class="block text-sm font-medium text-gray-700 mb-1">あなたの名前</label>
+                     <input type="text" id="participant-name" class="w-full md:w-1/2 px-4 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500" placeholder="山田 太郎">
+                     <button id="add-participant-btn" class="mt-2 w-full md:w-auto bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded-lg">
+                        <i class="fas fa-user-plus mr-2"></i>参加/更新
+                    </button>
+                </div>
+
+                <div id="schedule-table-container" class="overflow-x-auto">
+                    <!-- スケジュールテーブルがここに生成される -->
+                </div>
+
+                <div class="mt-8">
+                    <h2 class="text-2xl font-bold mb-4">集計結果</h2>
+                    <div id="summary-container" class="space-y-3">
+                       <!-- 集計結果がここに表示される -->
+                    </div>
+                </div>
+
+                <div class="mt-8 pt-4 border-t">
+                     <label for="share-url" class="block text-sm font-medium text-gray-700 mb-1">共有URL</label>
+                    <div class="flex items-center space-x-2">
+                        <input type="text" id="share-url" readonly class="w-full px-3 py-2 bg-gray-100 border border-gray-300 rounded-lg text-gray-600">
+                        <button id="copy-url-btn" class="bg-gray-200 hover:bg-gray-300 text-gray-800 font-bold py-2 px-4 rounded-lg flex-shrink-0">
+                            <i class="fas fa-copy"></i>
+                        </button>
+                    </div>
+                    <div id="copy-feedback" class="text-green-600 text-sm mt-1 h-4"></div>
+                </div>
+                 <div class="mt-4 text-center">
+                    <a href="/" class="text-blue-600 hover:underline">
+                        <i class="fas fa-plus-circle mr-1"></i>新しい日程調整を作成する
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Firebase -->
+    <script type="module">
+        // Firebase SDKのインポート
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getFirestore, doc, getDoc, setDoc, onSnapshot, collection, addDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+
+        // --- DOM要素の取得 ---
+        const createView = document.getElementById('create-view');
+        const scheduleView = document.getElementById('schedule-view');
+        const loader = document.getElementById('loader');
+
+        const eventNameInput = document.getElementById('event-name');
+        const candidateDatesContainer = document.getElementById('candidate-dates-container');
+        const addDateBtn = document.getElementById('add-date-btn');
+        const createEventBtn = document.getElementById('create-event-btn');
+
+        const displayEventName = document.getElementById('display-event-name');
+        const participantNameInput = document.getElementById('participant-name');
+        const addParticipantBtn = document.getElementById('add-participant-btn');
+        const scheduleTableContainer = document.getElementById('schedule-table-container');
+        const summaryContainer = document.getElementById('summary-container');
+        const shareUrlInput = document.getElementById('share-url');
+        const copyUrlBtn = document.getElementById('copy-url-btn');
+        const copyFeedback = document.getElementById('copy-feedback');
+
+        // --- Firebase設定 ---
+        let db, auth;
+        let currentEventId = null;
+        let eventUnsubscribe = null; // onSnapshotのリスナーを解除するための変数
+
+        // グローバル変数から設定を取得
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : null;
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+        
+        // --- 初期化処理 ---
+        async function initialize() {
+            if (!firebaseConfig) {
+                console.error("Firebase config is not available.");
+                alert("アプリケーションの読み込みに失敗しました。");
+                return;
+            }
+            try {
+                const app = initializeApp(firebaseConfig);
+                db = getFirestore(app);
+                auth = getAuth(app);
+
+                onAuthStateChanged(auth, async (user) => {
+                    if (user) {
+                        console.log("User is signed in:", user.uid);
+                        initApp();
+                    } else {
+                        console.log("User is signed out. Attempting to sign in.");
+                        try {
+                            if (initialAuthToken) {
+                                await signInWithCustomToken(auth, initialAuthToken);
+                            } else {
+                                await signInAnonymously(auth);
+                            }
+                        } catch (error) {
+                             console.error("Error signing in:", error);
+                             alert("認証に失敗しました。ページをリロードしてください。");
+                        }
+                    }
+                });
+            } catch (error) {
+                console.error("Firebase initialization failed:", error);
+                alert("アプリケーションの初期化に失敗しました。");
+            }
+        }
+
+        // --- アプリケーションロジック ---
+        function initApp() {
+            // URLのハッシュ（#以降）をチェックして表示を切り替える
+            currentEventId = window.location.hash.substring(1);
+            if (currentEventId) {
+                showView('schedule');
+                loadEventData(currentEventId);
+            } else {
+                showView('create');
+            }
+        }
+
+        function showView(viewName) {
+            createView.classList.toggle('hidden', viewName !== 'create');
+            scheduleView.classList.toggle('hidden', viewName !== 'schedule');
+        }
+
+        function showLoader(show) {
+            loader.classList.toggle('hidden', !show);
+        }
+
+        // --- イベント作成機能 ---
+
+        // 候補日入力フィールドを追加
+        function addDateField() {
+            const dateId = `date-${Date.now()}`;
+            const dateField = document.createElement('div');
+            dateField.className = 'flex items-center space-x-2';
+            dateField.innerHTML = `
+                <input type="datetime-local" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500" required>
+                <button data-remove-id="${dateId}" class="remove-date-btn bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-3 rounded-lg flex-shrink-0">
+                    <i class="fas fa-trash-alt"></i>
+                </button>
+            `;
+            dateField.id = dateId;
+            candidateDatesContainer.appendChild(dateField);
+        }
+        
+        addDateBtn.addEventListener('click', addDateField);
+        // 最初から1つ表示しておく
+        addDateField();
+
+        // 候補日入力フィールドを削除
+        candidateDatesContainer.addEventListener('click', (e) => {
+            const removeBtn = e.target.closest('.remove-date-btn');
+            if (removeBtn) {
+                const idToRemove = removeBtn.dataset.removeId;
+                document.getElementById(idToRemove)?.remove();
+            }
+        });
+
+        // イベントをFirestoreに作成
+        createEventBtn.addEventListener('click', async () => {
+            const eventName = eventNameInput.value.trim();
+            if (!eventName) {
+                alert('イベント名を入力してください。');
+                return;
+            }
+
+            const dateInputs = candidateDatesContainer.querySelectorAll('input[type="datetime-local"]');
+            const candidateDates = Array.from(dateInputs)
+                .map(input => input.value)
+                .filter(value => value)
+                .sort(); // 日時をソート
+
+            if (candidateDates.length === 0) {
+                alert('候補日時を少なくとも1つ入力してください。');
+                return;
+            }
+            
+            showLoader(true);
+            try {
+                const eventData = {
+                    name: eventName,
+                    dates: candidateDates,
+                    participants: {},
+                    createdAt: new Date().toISOString()
+                };
+                const docRef = await addDoc(collection(db, `artifacts/${appId}/public/data/schedule-events`), eventData);
+                window.location.hash = docRef.id;
+                currentEventId = docRef.id;
+                initApp(); // スケジュールビューに切り替え
+            } catch (error) {
+                console.error("Error creating event:", error);
+                alert('イベントの作成に失敗しました。');
+            } finally {
+                showLoader(false);
+            }
+        });
+
+        // --- 日程調整機能 ---
+
+        // イベントデータを読み込み、リアルタイム更新を監視
+        function loadEventData(eventId) {
+            shareUrlInput.value = window.location.href;
+            const eventDocRef = doc(db, `artifacts/${appId}/public/data/schedule-events`, eventId);
+
+            // 既存のリスナーがあれば解除
+            if (eventUnsubscribe) {
+                eventUnsubscribe();
+            }
+
+            eventUnsubscribe = onSnapshot(eventDocRef, (docSnap) => {
+                if (docSnap.exists()) {
+                    const eventData = docSnap.data();
+                    renderScheduleView(eventData);
+                } else {
+                    console.error("Event not found!");
+                    alert("指定されたイベントが見つかりません。");
+                    window.location.hash = '';
+                    initApp();
+                }
+            });
+        }
+        
+        // 出欠テーブルと集計結果を描画
+        function renderScheduleView(eventData) {
+            displayEventName.textContent = eventData.name;
+            const dates = eventData.dates || [];
+            const participants = eventData.participants || {};
+            const participantNames = Object.keys(participants).sort();
+
+            // テーブルHTMLを生成
+            let tableHtml = `
+                <table class="w-full min-w-max text-sm text-left text-gray-500 rounded-lg overflow-hidden">
+                    <thead class="text-xs text-gray-700 uppercase bg-gray-100">
+                        <tr>
+                            <th scope="col" class="py-3 px-4 sticky left-0 bg-gray-100 z-10 min-w-[180px]">候補日時</th>
+                            ${participantNames.map(name => `<th scope="col" class="py-3 px-4 text-center">${escapeHtml(name)}</th>`).join('')}
+                        </tr>
+                    </thead>
+                    <tbody>
+            `;
+            
+            dates.forEach(date => {
+                const formattedDate = new Date(date).toLocaleString('ja-JP', { year: 'numeric', month: 'short', day: 'numeric', weekday: 'short', hour: '2-digit', minute: '2-digit' });
+                tableHtml += `
+                    <tr class="bg-white border-b">
+                        <td class="py-3 px-4 font-medium text-gray-900 sticky left-0 bg-white z-10">${formattedDate}</td>
+                        ${participantNames.map(name => {
+                            const status = participants[name]?.[date] || '';
+                            let statusClass = '';
+                            let statusText = '-';
+                            if (status === 'o') { statusClass = 'status-o'; statusText = '◯'; }
+                            if (status === 's') { statusClass = 'status-s'; statusText = '△'; }
+                            if (status === 'x') { statusClass = 'status-x'; statusText = '✕'; }
+                            return `<td class="py-3 px-4 text-center font-bold text-lg ${statusClass}">${statusText}</td>`;
+                        }).join('')}
+                    </tr>
+                `;
+            });
+            tableHtml += `</tbody></table>`;
+            scheduleTableContainer.innerHTML = tableHtml;
+
+            // 集計結果HTMLを生成
+            renderSummary(dates, participants);
+        }
+
+        // 集計を描画する
+        function renderSummary(dates, participants) {
+             const summaryData = dates.map(date => {
+                const countO = Object.values(participants).filter(p => p[date] === 'o').length;
+                const countS = Object.values(participants).filter(p => p[date] === 's').length;
+                return { date, countO, countS };
+            });
+            
+            const maxParticipants = Math.max(...summaryData.map(d => d.countO));
+
+            let summaryHtml = '';
+            if(summaryData.length > 0) {
+                 summaryData.forEach(({date, countO, countS}) => {
+                    const formattedDate = new Date(date).toLocaleString('ja-JP', { year: 'numeric', month: 'short', day: 'numeric', weekday: 'short', hour: '2-digit', minute: '2-digit' });
+                    const isBest = countO > 0 && countO === maxParticipants;
+
+                    summaryHtml += `
+                        <div class="p-4 rounded-lg flex items-center justify-between ${isBest ? 'bg-green-100 border-l-4 border-green-500' : 'bg-gray-50'}">
+                            <div>
+                                <p class="font-semibold text-gray-800">${formattedDate}</p>
+                                <p class="text-sm text-gray-600">
+                                    <span class="text-green-600 font-medium">参加 (◯): ${countO}人</span>, 
+                                    <span class="text-yellow-600 font-medium">未定 (△): ${countS}人</span>
+                                </p>
+                            </div>
+                            ${isBest ? '<div class="text-green-600 font-bold flex items-center"><i class="fas fa-star mr-2"></i>一番人気</div>' : ''}
+                        </div>
+                    `;
+                 });
+            } else {
+                summaryHtml = '<p class="text-gray-500">まだ誰も回答していません。</p>';
+            }
+
+            summaryContainer.innerHTML = summaryHtml;
+        }
+
+        // 参加者を追加/更新
+        addParticipantBtn.addEventListener('click', async () => {
+            const name = participantNameInput.value.trim();
+            if (!name) {
+                alert('名前を入力してください。');
+                return;
+            }
+            showScheduleModal(name);
+        });
+        
+        // 出欠入力モーダルを表示
+        function showScheduleModal(name) {
+            const eventDocRef = doc(db, `artifacts/${appId}/public/data/schedule-events`, currentEventId);
+            getDoc(eventDocRef).then(docSnap => {
+                if (!docSnap.exists()) return;
+
+                const eventData = docSnap.data();
+                const dates = eventData.dates;
+                const currentUserStatus = eventData.participants?.[name] || {};
+                
+                // --- Modal creation ---
+                const modalOverlay = document.createElement('div');
+                modalOverlay.className = 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4';
+                
+                let modalContentHtml = `
+                    <div class="bg-white rounded-2xl shadow-xl p-6 md:p-8 w-full max-w-lg max-h-[90vh] overflow-y-auto">
+                        <h3 class="text-2xl font-bold mb-2">こんにちは、${escapeHtml(name)}さん</h3>
+                        <p class="text-gray-600 mb-6">各日時の出欠を選択してください。</p>
+                        <div class="space-y-4">
+                `;
+                
+                dates.forEach(date => {
+                    const formattedDate = new Date(date).toLocaleString('ja-JP', { year: 'numeric', month: 'short', day: 'numeric', weekday: 'short', hour: '2-digit', minute: '2-digit' });
+                    const currentStatus = currentUserStatus[date] || '';
+
+                    modalContentHtml += `
+                        <div class="p-3 bg-gray-50 rounded-lg">
+                            <p class="font-medium mb-2">${formattedDate}</p>
+                            <div class="flex space-x-2" data-date="${date}">
+                                <button class="status-btn w-full py-2 rounded-lg font-bold ${currentStatus === 'o' ? 'status-o' : 'bg-gray-200'}" data-status="o">◯ 参加</button>
+                                <button class="status-btn w-full py-2 rounded-lg font-bold ${currentStatus === 's' ? 'status-s' : 'bg-gray-200'}" data-status="s">△ 未定</button>
+                                <button class="status-btn w-full py-2 rounded-lg font-bold ${currentStatus === 'x' ? 'status-x' : 'bg-gray-200'}" data-status="x">✕ 不参加</button>
+                            </div>
+                        </div>
+                    `;
+                });
+
+                modalContentHtml += `
+                        </div>
+                        <div class="mt-8 flex justify-end space-x-3">
+                            <button id="modal-cancel" class="bg-gray-200 hover:bg-gray-300 text-gray-800 font-bold py-2 px-4 rounded-lg">キャンセル</button>
+                            <button id="modal-submit" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg">更新</button>
+                        </div>
+                    </div>
+                `;
+                
+                modalOverlay.innerHTML = modalContentHtml;
+                document.body.appendChild(modalOverlay);
+
+                const newStatuses = { ...currentUserStatus };
+
+                modalOverlay.addEventListener('click', (e) => {
+                    const statusBtn = e.target.closest('.status-btn');
+                    if (statusBtn) {
+                         const container = statusBtn.parentElement;
+                         const date = container.dataset.date;
+                         const status = statusBtn.dataset.status;
+
+                         // 同じステータスを再度クリックしたら解除
+                         if (newStatuses[date] === status) {
+                            delete newStatuses[date];
+                         } else {
+                            newStatuses[date] = status;
+                         }
+
+                         // ボタンの見た目を更新
+                         container.querySelectorAll('.status-btn').forEach(btn => {
+                            btn.classList.remove('status-o', 'status-s', 'status-x', 'bg-gray-200');
+                            const btnStatus = btn.dataset.status;
+                            if (newStatuses[date] === btnStatus) {
+                                btn.classList.add(`status-${btnStatus}`);
+                            } else {
+                                btn.classList.add('bg-gray-200');
+                            }
+                         });
+                    }
+
+                    if (e.target.id === 'modal-submit') {
+                        updateParticipantStatus(name, newStatuses);
+                        document.body.removeChild(modalOverlay);
+                    }
+                    if (e.target.id === 'modal-cancel' || e.target === modalOverlay) {
+                        document.body.removeChild(modalOverlay);
+                    }
+                });
+            });
+        }
+        
+        // 参加者の出欠情報をFirestoreに保存
+        async function updateParticipantStatus(name, statuses) {
+             if (!currentEventId) return;
+             showLoader(true);
+             try {
+                const eventDocRef = doc(db, `artifacts/${appId}/public/data/schedule-events`, currentEventId);
+                // ドットを含む名前をキーとして使えるようにエスケープする
+                const fieldPath = `participants.${name.replace(/\./g, '\\.')}`;
+                await setDoc(eventDocRef, {
+                    participants: {
+                        [name]: statuses
+                    }
+                }, { merge: true });
+                // ローカルストレージに名前を保存
+                localStorage.setItem('schedule_app_participant_name', name);
+             } catch(error) {
+                console.error("Error updating status:", error);
+                alert("更新に失敗しました。");
+             } finally {
+                showLoader(false);
+             }
+        }
+
+        // --- ユーティリティ ---
+
+        // URLをクリップボードにコピー
+        copyUrlBtn.addEventListener('click', () => {
+            shareUrlInput.select();
+            document.execCommand('copy');
+            copyFeedback.textContent = 'コピーしました！';
+            setTimeout(() => { copyFeedback.textContent = ''; }, 2000);
+        });
+
+        // HTMLエスケープ関数
+        function escapeHtml(str) {
+            const div = document.createElement('div');
+            div.appendChild(document.createTextNode(str));
+            return div.innerHTML;
+        }
+
+        // ローカルストレージから名前を復元
+        const savedName = localStorage.getItem('schedule_app_participant_name');
+        if (savedName) {
+            participantNameInput.value = savedName;
+        }
+
+        // --- 初期化処理の実行 ---
+        initialize();
+
+    </script>
+</body>
+</html>
+
